@@ -1,0 +1,39 @@
+name: Generate and Send Bi-Weekly Report
+
+on:
+  schedule:
+    # Note: cron jobs are in UTC. This schedule is set to run at 11:00 AM Eastern Time (ET),
+    # accounting for both Standard Time (EST) and Daylight Time (EDT).
+    #
+    # Runs at 11:00 AM EDT (15:00 UTC) on the 24th of every month from March to October.
+    - cron: '0 15 24 3-10 *'
+    # Runs at 11:00 AM EST (16:00 UTC) on the 24th of every month from November to February.
+    - cron: '0 16 24 1,2,11,12 *'
+
+  # Allows you to run this workflow manually from the Actions tab for testing
+  workflow_dispatch:
+
+jobs:
+  build-and-send-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16' # Using a stable LTS version
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run report generator
+        run: npx ts-node src/index.ts
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          RECEIVER_EMAIL: ${{ secrets.RECEIVER_EMAIL }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+          CC_EMAIL: ${{ secrets.CC_EMAIL }}
