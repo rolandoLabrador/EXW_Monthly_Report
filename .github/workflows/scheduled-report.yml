@@ -1,4 +1,4 @@
-name: Generate and Send Bi-Weekly Report
+name: Generate and Send Monthly Report
 
 on:
   schedule:
