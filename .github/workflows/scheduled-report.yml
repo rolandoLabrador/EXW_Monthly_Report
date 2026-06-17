@@ -19,18 +19,18 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
-          node-version: '16' # Using a stable LTS version
+          node-version: '20' # Using a current LTS version required by dependencies
 
       - name: Install dependencies
         run: npm install
 
       - name: Run report generator
-        run: npx ts-node src/index.ts
+        run: npm start
         env:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
