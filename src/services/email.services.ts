@@ -13,10 +13,10 @@ export class EmailService {
         const fileName = path.basename(filePath);
 
         const recipients = process.env.RECEIVER_EMAIL!.split(',');
-        const CCrecipients =process.env.CC_EMAIL!.split(',');
-        const msg = {
+        
+        // Safely handle the optional CC_EMAIL variable
+        const msg: sgMail.MailDataRequired = {
             to: recipients,
-          //  cc: CCrecipients,
             from: process.env.SENDER_EMAIL!,
             subject: 'Executive Warranties Pending Contract Report',
             text: `Hi,\n\nAttached is the list of pending Executive Warranties contracts up to today.\n\nThanks`,
@@ -27,6 +27,11 @@ export class EmailService {
         disposition: 'attachment',
       }],
     };
+
+    // Only add CC recipients if the CC_EMAIL variable is present and not empty
+    if (process.env.CC_EMAIL) {
+        msg.cc = process.env.CC_EMAIL.split(',');
+    }
     
     // Use sendMultiple so each person gets their own copy
     await sgMail.sendMultiple(msg); 

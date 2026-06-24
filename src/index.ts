@@ -9,7 +9,7 @@ configDotenv.config();
 
 async function main(){
   // validate enviroment
-  const requiredEnvVars= ['MONGO_URI','SENDGRID_API_KEY','RECEIVER_EMAIL','SENDER_EMAIL'];
+  const requiredEnvVars= ['MONGO_URI','SENDGRID_API_KEY','RECEIVER_EMAIL','SENDER_EMAIL', 'CC_EMAIL'];
   const missingVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
 
  if(missingVars.length>0){
