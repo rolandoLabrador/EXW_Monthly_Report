@@ -3,7 +3,7 @@
 
 # Build output
 # If you have a build step, it's good to ignore the output directory
-# /dist
+/dist
 
 # Log files
 npm-debug.log*
