@@ -1,31 +1,18 @@
-# Logs
-logs
-*.log
+# Dependencies
+/node_modules
+
+# Build output
+# If you have a build step, it's good to ignore the output directory
+# /dist
+
+# Log files
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Dependencies
-node_modules/
-
-# TypeScript build output directory
-dist/
-build/
-
-# Environment variables (Crucial for SendGrid and MongoDB credentials)
+# Environment variables
 .env
-.env.test
-.env.production
-.env.local
 
-# Optional REPL history
-.node_repl_history
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Generated Reports
+# This will ignore all Excel files in the project.
+*.xlsx
