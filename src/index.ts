@@ -43,16 +43,20 @@ async function main(){
     console.log('Sending email...');
     await emailService.sendReport(filePath, process.env.RECEIVER_EMAIL!);
 
+    // Close the database connection only after all other operations succeed.
+    await dbService.close();
     console.log('Process completed successfully!');
   } catch (error: any) {
     console.error('An error occurred during the process:', error);
     try {
         await emailService.sendError(error);
+        // Also close the connection after sending an error email.
+        await dbService.close();
     } catch (emailError) {
         console.error('Failed to send error email:', emailError);
+        // Ensure connection is closed even if error email fails.
+        await dbService.close();
     }
-  } finally {
-    await dbService.close();
   }
 }
 
