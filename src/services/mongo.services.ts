@@ -17,8 +17,8 @@ async getContracts(){
         await this.client.connect();
         console.log("Successfully connected to MongoDB!");
 
-        const db=this.client.db("ContractDataDB");
-        const collections= db.collection("ContractData");
+        const db=this.client.db("PendingContractDataDB");
+        const collections= db.collection("PendingContractData");
 
         const query={
           "metadata.Agent":"EXW",

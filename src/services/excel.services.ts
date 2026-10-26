@@ -10,7 +10,7 @@ export class ExcelService {
    */
   public async generateReport(data: BiWeeklyReportData, outputPath: string): Promise<void> {
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Bi-Weekly Report');
+    const sheet = workbook.addWorksheet('Monthly Report');
 
     // Define the highlight style once to keep the code clean and reusable
     const highlightFill: ExcelJS.Fill = {
