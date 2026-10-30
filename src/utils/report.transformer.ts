@@ -1,4 +1,5 @@
 import type { BiWeeklyReportData, DealershipBreakdown, ContractProductType, RawContractType } from '../models/report.types.js';
+import { calculateDbDealerCost } from '../services/pcmi.services.js';
 
 export interface MongoContract {
   _id?: { toString(): string };
@@ -6,10 +7,19 @@ export interface MongoContract {
     DealerName?: unknown;
     CoverageName?: unknown;
     NetCost?: unknown;
+    SubmittedAmount?: unknown;
     "Contract#"?: unknown;
+    ContractNumber?: unknown;
     SaleDate?: unknown;
     EntryDate?: unknown;
+    [key: string]: unknown;
   };
+  WrittenAmount?: unknown;
+  effectiveCost?: number;
+  hasCostDiscrepancy?: boolean;
+  dbDealerCost?: number;
+  apiDealerCost?: number;
+  [key: string]: unknown;
 }
 
 function formatUtcDate(val: any): string {
@@ -43,7 +53,13 @@ export function transformContractData(contracts: MongoContract[]): BiWeeklyRepor
   for (const contract of contracts) {
     const dealerName = String(contract.metadata?.DealerName || 'Unknown Dealer');
     const productName = String(contract.metadata?.CoverageName || 'Unknown Coverage');
-    const netCost = Number(contract.metadata?.NetCost) || 0;
+    
+    // Effective dealer cost: API value if discrepancy was detected, otherwise DB cost (WrittenAmount sum)
+    const netCost = contract.effectiveCost !== undefined ? contract.effectiveCost : calculateDbDealerCost(contract);
+    const hasCostDiscrepancy = !!contract.hasCostDiscrepancy;
+    const dbDealerCost = contract.dbDealerCost;
+    const apiDealerCost = contract.apiDealerCost;
+
     const contractNumber = String(contract.metadata?.['Contract#'] || contract._id?.toString() || 'Unknown');
 
     // Calculate age based on SaleDate (with fallback to EntryDate)
@@ -68,7 +84,10 @@ export function transformContractData(contracts: MongoContract[]): BiWeeklyRepor
       dealershipName: dealerName,
       netCost,
       saleDate: formatUtcDate(saleDateVal),
-      ageCategory
+      ageCategory,
+      hasCostDiscrepancy,
+      dbDealerCost,
+      apiDealerCost
     });
 
     grandTotalCount++;
@@ -115,8 +134,10 @@ export function transformContractData(contracts: MongoContract[]): BiWeeklyRepor
   }
 
   const dealerships: DealershipBreakdown[] = [];
+
   for (const [dealerName, dealerData] of dealerMap.entries()) {
     const products: ContractProductType[] = [];
+
     for (const [productName, productData] of dealerData.products.entries()) {
       products.push({
         productName,
@@ -126,7 +147,7 @@ export function transformContractData(contracts: MongoContract[]): BiWeeklyRepor
         costOver45Days: productData.costOver45
       });
     }
-    
+
     dealerships.push({
       dealershipName: dealerName,
       totalContractCount: dealerData.totalCount,

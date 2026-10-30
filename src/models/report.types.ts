@@ -29,6 +29,19 @@ export interface RawContractType {
   coverageName: string;
   dealershipName: string;
   netCost: number;
-  saleDate?: string;
-  ageCategory?: string;
+  saleDate?: string | undefined;
+  ageCategory?: string | undefined;
+  hasCostDiscrepancy?: boolean | undefined;
+  dbDealerCost?: number | undefined;
+  apiDealerCost?: number | undefined;
+}
+
+export interface CostDiscrepancyItem {
+  contractNumber: string;
+  dealershipName: string;
+  saleDate: string;
+  coverageName: string;
+  dbCost: number;
+  apiCost: number;
+  costDifference: number;
 }

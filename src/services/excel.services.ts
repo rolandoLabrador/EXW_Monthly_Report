@@ -27,6 +27,12 @@ export class ExcelService {
       fgColor: { argb: 'FFFFC7CE' } // Light Pink / Red for More Than 45 Days
     };
 
+    const costDiscrepancyFill: ExcelJS.Fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE1D5E7' } // Soft Lavender / Violet for Dealer Cost Discrepancy (API Applied)
+    };
+
     const getOuterBorder = (isTop: boolean, isBottom: boolean, isLeft: boolean, isRight: boolean): Partial<ExcelJS.Borders> => {
       const b: Partial<ExcelJS.Borders> = {};
       if (isTop) b.top = { style: 'medium' };
@@ -173,65 +179,117 @@ export class ExcelService {
           rawRow.getCell(c).fill = highlightRed;
         }
       }
+      if (raw.hasCostDiscrepancy) {
+        rawRow.getCell(5).font = { color: { argb: 'FF371435' }, bold: true };
+        rawRow.getCell(5).fill = costDiscrepancyFill;
+      }
     }
 
     rawSheet.getColumn('netCost').numFmt = '"$"#,##0.00';
 
+    // Color Key on Raw Data tab
+    rawSheet.getCell('H1').value = 'Color Key:';
+    rawSheet.getCell('H1').font = { bold: true };
+
+    rawSheet.getCell('H2').value = 'Older than 45 Days';
+    rawSheet.getCell('H2').fill = highlightRed;
+    rawSheet.getCell('H2').border = getOuterBorder(true, true, true, true);
+
+    rawSheet.getCell('H3').value = 'Cost Diff (API Applied)';
+    rawSheet.getCell('H3').fill = costDiscrepancyFill;
+    rawSheet.getCell('H3').font = { color: { argb: 'FF371435' }, bold: true };
+    rawSheet.getCell('H3').border = getOuterBorder(true, true, true, true);
+
     // --- Add the Third Tab: Discrepancies (if PCMI reconciliation was run) ---
-    if (discrepancies) {
+    if (discrepancies || pcmiStats) {
       const discSheet = workbook.addWorksheet('Discrepancies');
       discSheet.views = [{ state: 'frozen', ySplit: 1 }];
       discSheet.columns = [
+        { header: 'Discrepancy Type', key: 'type', width: 26 },
         { header: 'Contract #', key: 'contractNumber', width: 25 },
         { header: 'Dealer Name', key: 'dealershipName', width: 40 },
         { header: 'Sale Date', key: 'saleDate', width: 15 },
         { header: 'Coverage Name', key: 'coverageName', width: 30 },
-        { header: 'Net Cost', key: 'netCost', width: 20 },
+        { header: 'DB Cost', key: 'dbCost', width: 18 },
+        { header: 'PCMI Cost (API)', key: 'apiCost', width: 18 },
+        { header: 'Cost Difference', key: 'costDiff', width: 18 },
         { header: 'Database Status', key: 'dbStatus', width: 18 },
-        { header: 'PCMI Status Code', key: 'pcmiCode', width: 18 },
-        { header: 'PCMI Status Description', key: 'pcmiDesc', width: 28 }
+        { header: 'PCMI Status', key: 'pcmiStatus', width: 24 },
+        { header: 'Action Taken', key: 'action', width: 35 }
       ];
 
       const discHeaderRow = discSheet.getRow(1);
       discHeaderRow.font = { bold: true };
-      for (let c = 1; c <= 8; c++) {
-        discHeaderRow.getCell(c).fill = highlightRed;
-        discHeaderRow.getCell(c).border = getOuterBorder(true, true, c === 1, c === 8);
+      for (let c = 1; c <= 11; c++) {
+        discHeaderRow.getCell(c).fill = highlightFill;
+        discHeaderRow.getCell(c).border = getOuterBorder(true, true, c === 1, c === 11);
       }
 
-      if (discrepancies.length === 0) {
+      const formatUtc = (val: any) => {
+        if (!val) return '';
+        const d = new Date(val);
+        if (isNaN(d.getTime())) return '';
+        return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
+      };
+
+      const statusList = discrepancies || [];
+      const costList: any[] = pcmiStats?.costDiscrepancyList || [];
+
+      if (statusList.length === 0 && costList.length === 0) {
         const emptyRow = discSheet.addRow({
-          contractNumber: 'No discrepancies detected. 100% of pending contracts match PCMI live pending status.'
+          type: 'No discrepancies detected. 100% of pending contracts match PCMI live pending status and dealer cost.'
         });
         emptyRow.font = { italic: true };
       } else {
-        const formatUtc = (val: any) => {
-          if (!val) return '';
-          const d = new Date(val);
-          if (isNaN(d.getTime())) return '';
-          return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
-        };
-
-        for (const item of discrepancies) {
+        // Output Status Discrepancies
+        for (const item of statusList) {
           const c = item.contract;
           const status = item.pcmiStatus || {};
+          const statusDesc = status.code ? `${status.code} - ${status.description || ''}` : (status.description || 'Not Pending');
           const row = discSheet.addRow({
+            type: 'Status Mismatch',
             contractNumber: item.contractNumber || c.metadata?.['Contract#'] || '',
             dealershipName: c.metadata?.DealerName || '',
             saleDate: formatUtc(c.metadata?.SaleDate || c.metadata?.EntryDate),
             coverageName: c.metadata?.CoverageName || '',
-            netCost: Number(c.metadata?.NetCost) || 0,
+            dbCost: item.dbCost !== undefined ? item.dbCost : (Number(c.metadata?.NetCost) || 0),
+            apiCost: item.apiCost !== undefined ? item.apiCost : '',
+            costDiff: item.apiCost !== undefined && item.dbCost !== undefined ? Number((item.apiCost - item.dbCost).toFixed(2)) : '',
             dbStatus: 'Pending (P)',
-            pcmiCode: status.code || '',
-            pcmiDesc: status.description || ''
+            pcmiStatus: statusDesc,
+            action: 'Excluded from report (No longer pending)'
           });
 
-          row.getCell(7).font = { bold: true, color: { argb: 'FF9C0006' } };
-          row.getCell(8).font = { bold: true, color: { argb: 'FF9C0006' } };
+          row.getCell(1).font = { bold: true, color: { argb: 'FF9C0006' } };
+          row.getCell(1).fill = highlightRed;
+          row.getCell(10).font = { bold: true, color: { argb: 'FF9C0006' } };
+        }
+
+        // Output Cost Discrepancies
+        for (const item of costList) {
+          const row = discSheet.addRow({
+            type: 'Dealer Cost Difference',
+            contractNumber: item.contractNumber || '',
+            dealershipName: item.dealershipName || '',
+            saleDate: formatUtc(item.saleDate),
+            coverageName: item.coverageName || '',
+            dbCost: item.dbCost,
+            apiCost: item.apiCost,
+            costDiff: item.costDifference,
+            dbStatus: 'Pending (P)',
+            pcmiStatus: 'Pending (P)',
+            action: 'API Dealer Cost applied & highlighted'
+          });
+
+          row.getCell(1).font = { bold: true, color: { argb: 'FF371435' } };
+          row.getCell(1).fill = costDiscrepancyFill;
+          row.getCell(8).font = { bold: true, color: { argb: 'FF371435' } };
         }
       }
 
-      discSheet.getColumn('netCost').numFmt = '"$"#,##0.00';
+      discSheet.getColumn('dbCost').numFmt = '"$"#,##0.00';
+      discSheet.getColumn('apiCost').numFmt = '"$"#,##0.00';
+      discSheet.getColumn('costDiff').numFmt = '"$"#,##0.00';
     }
 
     await workbook.xlsx.writeFile(outputPath);
