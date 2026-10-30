@@ -14,42 +14,37 @@ export class EmailService {
 
         const recipients = process.env.RECEIVER_EMAIL!.split(',');
         
-        // Safely handle the optional CC_EMAIL variable
         const msg: sgMail.MailDataRequired = {
             to: recipients,
             from: process.env.SENDER_EMAIL!,
             subject: 'Executive Warranties Pending Contract Report',
             text: `Hi,\n\nAttached is the list of pending Executive Warranties contracts up to today.\n\nThanks`,
+            html: `<p>Hi,</p><p>Attached is the list of pending Executive Warranties contracts up to today.</p><p>Thanks</p>`,
             attachments: [{
-        content: attachment,
-        filename: fileName,
+                content: attachment,
+                filename: fileName,
                 type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        disposition: 'attachment',
-      }],
-    };
+                disposition: 'attachment',
+            }],
+        };
 
-    // Only add CC recipients if the CC_EMAIL variable is present and not empty
-    if (process.env.CC_EMAIL) {
-        msg.cc = process.env.CC_EMAIL.split(',');
+        if (process.env.CC_EMAIL) {
+            msg.cc = process.env.CC_EMAIL.split(',');
+        }
+        
+        await sgMail.sendMultiple(msg); 
     }
-    
-    // Use sendMultiple so each person gets their own copy
-    await sgMail.sendMultiple(msg); 
-}
 
-  // Ensure this is named 'sendError'
-async sendError(error: any) {
-    // Split here too so everyone gets the error notification
-    const recipients = process.env.RECEIVER_EMAIL!.split(',');
+    async sendError(error: any) {
+        const recipients = process.env.RECEIVER_EMAIL!.split(',');
 
-    const msg = {
-      to: recipients,
-      from: process.env.SENDER_EMAIL!,
-      subject: `ERROR: Contract Export Failed`,
-      text: `The automated export failed. Please check the logs.\n\nError: ${error.message}`,
-    };
+        const msg = {
+            to: recipients,
+            from: process.env.SENDER_EMAIL!,
+            subject: `ERROR: Contract Export Failed`,
+            text: `The automated export failed. Please check the logs.\n\nError: ${error.message}`,
+        };
 
-    // Use sendMultiple here as well
-    await sgMail.sendMultiple(msg);
-  }
+        await sgMail.sendMultiple(msg);
+    }
 }
