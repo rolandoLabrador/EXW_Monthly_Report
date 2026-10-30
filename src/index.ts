@@ -3,8 +3,9 @@ import path from 'path';
 import { DatabaseService } from './services/mongo.services.js';
 import { ExcelService } from './services/excel.services.js';
 import { EmailService } from './services/email.services.js';
-import { PcmiService } from './services/pcmi.services.js';
+import { PcmiService, type PcmiVerificationStats } from './services/pcmi.services.js';
 import { transformContractData } from './utils/report.transformer.js';
+import type { MongoContract, PcmiDiscrepancy } from './models/report.types.js';
 
 async function main(){
   // validate environment
@@ -34,13 +35,13 @@ async function main(){
     
     console.log(`Found ${contracts.length} pending contracts in database.`);
 
-    let finalContracts = contracts;
-    let discrepancies: any[] = [];
-    let pcmiStats: any = undefined;
+    let finalContracts: MongoContract[] = contracts as unknown as MongoContract[];
+    let discrepancies: PcmiDiscrepancy[] = [];
+    let pcmiStats: PcmiVerificationStats | undefined = undefined;
 
     if (process.env.PCMI_CLIENT_ID && process.env.PCMI_CLIENT_SECRET) {
       const pcmiService = new PcmiService();
-      const result = await pcmiService.filterPendingContracts(contracts);
+      const result = await pcmiService.filterPendingContracts(contracts as unknown as MongoContract[]);
       finalContracts = result.pendingContracts;
       discrepancies = result.removedContracts;
       pcmiStats = result.stats;
@@ -56,7 +57,7 @@ async function main(){
     await emailService.sendReport(filePath, process.env.RECEIVER_EMAIL!, { pcmiStats });
 
     console.log('Process completed successfully!');
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('An error occurred during the process:', error);
     try {
         await emailService.sendError(error);

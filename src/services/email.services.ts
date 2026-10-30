@@ -4,7 +4,7 @@ import path from 'path';
 import type { PcmiVerificationStats } from './pcmi.services.js';
 
 export interface EmailSummaryDetails {
-  pcmiStats?: PcmiVerificationStats;
+  pcmiStats?: PcmiVerificationStats | undefined;
 }
 
 export class EmailService {
@@ -62,9 +62,8 @@ export class EmailService {
       </div>`;
     }
 
-    const msg: any = {
+    const msg: sgMail.MailDataRequired = {
       to: recipients,
-      cc: ccRecipients.length > 0 ? ccRecipients : undefined,
       from: process.env.SENDER_EMAIL!,
       subject: emailSubject,
       text: `Hi,\n\nAttached is the EXW Monthly Pending Report up to today.\n\nThanks`,
@@ -77,17 +76,22 @@ export class EmailService {
       }],
     };
 
+    if (ccRecipients.length > 0) {
+      msg.cc = ccRecipients;
+    }
+
     await sgMail.sendMultiple(msg);
   }
 
-  async sendError(error: any) {
+  async sendError(error: unknown) {
     const recipients = process.env.RECEIVER_EMAIL!.split(',');
+    const errorMsg = error instanceof Error ? error.message : String(error);
 
     const msg = {
       to: recipients,
       from: process.env.SENDER_EMAIL!,
       subject: `ERROR: Contract Export Failed`,
-      text: `The automated export failed. Please check the logs.\n\nError: ${error.message}`,
+      text: `The automated export failed. Please check the logs.\n\nError: ${errorMsg}`,
     };
 
     await sgMail.sendMultiple(msg);

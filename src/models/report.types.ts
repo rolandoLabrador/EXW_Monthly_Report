@@ -45,3 +45,35 @@ export interface CostDiscrepancyItem {
   apiCost: number;
   costDifference: number;
 }
+
+export interface MongoContract {
+  _id?: { toString(): string } | undefined;
+  metadata?: {
+    DealerName?: unknown;
+    CoverageName?: unknown;
+    NetCost?: unknown;
+    SubmittedAmount?: unknown;
+    "Contract#"?: unknown;
+    ContractNumber?: unknown;
+    SaleDate?: unknown;
+    EntryDate?: unknown;
+    [key: string]: unknown;
+  } | undefined;
+  WrittenAmount?: unknown;
+  effectiveCost?: number | undefined;
+  hasCostDiscrepancy?: boolean | undefined;
+  dbDealerCost?: number | undefined;
+  apiDealerCost?: number | undefined;
+  [key: string]: unknown;
+}
+
+export interface PcmiDiscrepancy {
+  contractNumber: string;
+  contract: MongoContract;
+  pcmiStatus?: {
+    code?: string | undefined;
+    description?: string | undefined;
+  } | null | undefined;
+  dbCost?: number | undefined;
+  apiCost?: number | undefined;
+}

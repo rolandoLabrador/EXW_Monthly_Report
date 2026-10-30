@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs';
-import type { BiWeeklyReportData } from '../models/report.types.js';
+import type { BiWeeklyReportData, PcmiDiscrepancy, CostDiscrepancyItem } from '../models/report.types.js';
+import type { PcmiVerificationStats } from './pcmi.services.js';
 
 export class ExcelService {
   /**
@@ -8,8 +9,8 @@ export class ExcelService {
   public async generateReport(
     data: BiWeeklyReportData,
     outputPath: string,
-    discrepancies?: any[],
-    pcmiStats?: any
+    discrepancies?: PcmiDiscrepancy[] | undefined,
+    pcmiStats?: PcmiVerificationStats | undefined
   ): Promise<void> {
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet('Monthly Report');
@@ -225,15 +226,15 @@ export class ExcelService {
         discHeaderRow.getCell(c).border = getOuterBorder(true, true, c === 1, c === 11);
       }
 
-      const formatUtc = (val: any) => {
+      const formatUtc = (val: unknown) => {
         if (!val) return '';
-        const d = new Date(val);
+        const d = new Date(String(val));
         if (isNaN(d.getTime())) return '';
         return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${d.getUTCFullYear()}`;
       };
 
       const statusList = discrepancies || [];
-      const costList: any[] = pcmiStats?.costDiscrepancyList || [];
+      const costList: CostDiscrepancyItem[] = pcmiStats?.costDiscrepancyList || [];
 
       if (statusList.length === 0 && costList.length === 0) {
         const emptyRow = discSheet.addRow({

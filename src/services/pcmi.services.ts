@@ -1,4 +1,4 @@
-import type { CostDiscrepancyItem } from '../models/report.types.js';
+import type { MongoContract, PcmiDiscrepancy, CostDiscrepancyItem } from '../models/report.types.js';
 
 export interface PcmiContractStatus {
   code: string;
@@ -36,9 +36,22 @@ export interface PcmiVerificationStats {
 }
 
 export interface PcmiVerificationResult {
-  pendingContracts: any[];
-  removedContracts: any[];
+  pendingContracts: MongoContract[];
+  removedContracts: PcmiDiscrepancy[];
   stats: PcmiVerificationStats;
+}
+
+export interface PcmiContractApiResponse {
+  status?: PcmiContractStatus;
+  dealerCost?: {
+    amount?: number | string;
+    amountWithTax?: number | string;
+    tax?: {
+      taxAmount1?: number | string;
+      taxAmount2?: number | string;
+    };
+  } | number;
+  [key: string]: unknown;
 }
 
 /**
@@ -46,16 +59,17 @@ export interface PcmiVerificationResult {
  * (e.g. ADMIN + COMMISSION + RESERVE items).
  * If `WrittenAmount` is missing or empty, safely falls back to `metadata.NetCost` or `metadata.SubmittedAmount`.
  */
-export function calculateDbDealerCost(contract: any): number {
-  const writtenAmount = contract?.WrittenAmount || contract?.metadata?.WrittenAmount;
+export function calculateDbDealerCost(contract: MongoContract): number {
+  const writtenAmount = contract.WrittenAmount ?? contract.metadata?.WrittenAmount;
   if (writtenAmount && typeof writtenAmount === 'object') {
     let sum = 0;
     let found = false;
 
-    const traverse = (obj: any) => {
+    const traverse = (obj: unknown) => {
       if (!obj || typeof obj !== 'object') return;
-      for (const key of Object.keys(obj)) {
-        const val = obj[key];
+      const record = obj as Record<string, unknown>;
+      for (const key of Object.keys(record)) {
+        const val = record[key];
         if (val === null || val === undefined) continue;
 
         if (typeof val === 'number') {
@@ -70,14 +84,15 @@ export function calculateDbDealerCost(contract: any): number {
             found = true;
           }
         } else if (typeof val === 'object') {
-          if ('value' in val && !isNaN(Number((val as any).value))) {
-            sum += Number((val as any).value);
+          const subRecord = val as Record<string, unknown>;
+          if ('value' in subRecord && !isNaN(Number(subRecord.value))) {
+            sum += Number(subRecord.value);
             found = true;
-          } else if (typeof (val as any).toNumber === 'function') {
-            sum += (val as any).toNumber();
+          } else if (typeof (subRecord as { toNumber?: () => number }).toNumber === 'function') {
+            sum += (subRecord as { toNumber: () => number }).toNumber();
             found = true;
-          } else if (typeof (val as any).toString === 'function' && !isNaN(Number((val as any).toString()))) {
-            sum += Number((val as any).toString());
+          } else if (typeof subRecord.toString === 'function' && !isNaN(Number(subRecord.toString()))) {
+            sum += Number(subRecord.toString());
             found = true;
           } else {
             traverse(val);
@@ -93,11 +108,11 @@ export function calculateDbDealerCost(contract: any): number {
   }
 
   // Fallback to metadata.NetCost or metadata.SubmittedAmount
-  const netCost = Number(contract?.metadata?.NetCost);
+  const netCost = Number(contract.metadata?.NetCost);
   if (!isNaN(netCost) && netCost > 0) {
     return Number(netCost.toFixed(2));
   }
-  const submittedAmount = Number(contract?.metadata?.SubmittedAmount);
+  const submittedAmount = Number(contract.metadata?.SubmittedAmount);
   if (!isNaN(submittedAmount) && submittedAmount > 0) {
     return Number(submittedAmount.toFixed(2));
   }
@@ -108,17 +123,19 @@ export function calculateDbDealerCost(contract: any): number {
  * Extracts Dealer Cost from PCMI GetContracts API response.
  * Prefers `dealerCost.amountWithTax`, with fallback to `dealerCost.amount`.
  */
-export function extractApiDealerCost(contractData: any): number | null {
-  if (!contractData || !contractData.dealerCost) return null;
+export function extractApiDealerCost(contractData: PcmiContractApiResponse | null | undefined): number | null {
+  if (!contractData || contractData.dealerCost === undefined || contractData.dealerCost === null) return null;
   const dc = contractData.dealerCost;
   if (typeof dc === 'number' && !isNaN(dc)) return Number(dc.toFixed(2));
-  if (dc.amountWithTax !== undefined && dc.amountWithTax !== null) {
-    const val = Number(dc.amountWithTax);
-    return isNaN(val) ? null : Number(val.toFixed(2));
-  }
-  if (dc.amount !== undefined && dc.amount !== null) {
-    const val = Number(dc.amount);
-    return isNaN(val) ? null : Number(val.toFixed(2));
+  if (typeof dc === 'object') {
+    if (dc.amountWithTax !== undefined && dc.amountWithTax !== null) {
+      const val = Number(dc.amountWithTax);
+      return isNaN(val) ? null : Number(val.toFixed(2));
+    }
+    if (dc.amount !== undefined && dc.amount !== null) {
+      const val = Number(dc.amount);
+      return isNaN(val) ? null : Number(val.toFixed(2));
+    }
   }
   return null;
 }
@@ -144,7 +161,10 @@ export class PcmiService {
     this.password = process.env.PCMI_PASSWORD || '';
   }
 
-  private async getAccessToken(): Promise<string> {
+  /**
+   * Retrieves or refreshes the OAuth2 Bearer token from PCMI STS with retry support.
+   */
+  private async getAccessToken(maxRetries: number = 1): Promise<string> {
     const now = Date.now();
     if (this.accessToken && this.tokenExpiresAt > now + 60000) {
       return this.accessToken;
@@ -157,71 +177,128 @@ export class PcmiService {
     params.append('client_id', this.clientId);
     params.append('client_secret', this.clientSecret);
 
-    const response = await fetch(this.tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: params.toString()
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch(this.tokenUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: params.toString(),
+          signal: AbortSignal.timeout(10000)
+        });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Failed to obtain PCMI access token (${response.status} ${response.statusText}): ${errorText}`);
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Failed to obtain PCMI access token (${response.status} ${response.statusText}): ${errorText}`);
+        }
+
+        const data = (await response.json()) as { access_token: string; expires_in?: number | string };
+        this.accessToken = data.access_token;
+        const expiresInMs = (Number(data.expires_in) || 1800) * 1000;
+        this.tokenExpiresAt = now + expiresInMs;
+
+        return this.accessToken!;
+      } catch (err: unknown) {
+        if (attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        throw err;
+      }
     }
 
-    const data: any = await response.json();
-    this.accessToken = data.access_token;
-    const expiresInMs = (Number(data.expires_in) || 1800) * 1000;
-    this.tokenExpiresAt = now + expiresInMs;
-
-    return this.accessToken!;
+    throw new Error('Could not obtain PCMI access token after retries.');
   }
 
-  public async getContractInfo(contractNumber: string): Promise<PcmiContractInfo | null> {
-    try {
-      const token = await this.getAccessToken();
-      const url = `${this.baseUrl}/api/v2/contracts/GetContracts?contractNumber=${encodeURIComponent(contractNumber)}`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
-      });
+  /**
+   * Queries PCMI for live contract information including status and dealerCost.
+   */
+  public async getContractInfo(contractNumber: string, maxRetries: number = 1): Promise<PcmiContractInfo | null> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const token = await this.getAccessToken();
+        const url = `${this.baseUrl}/api/v2/contracts/GetContracts?contractNumber=${encodeURIComponent(contractNumber)}`;
 
-      if (!response.ok) {
-        console.warn(`PCMI API returned ${response.status} for contract ${contractNumber}`);
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+            'Connection': 'close'
+          },
+          signal: AbortSignal.timeout(6000)
+        });
+
+        if (response.status === 401 && attempt < maxRetries) {
+          this.accessToken = null;
+          continue;
+        }
+
+        if ((response.status === 429 || response.status >= 500) && attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+
+        if (!response.ok) {
+          console.warn(`PCMI API returned ${response.status} for contract ${contractNumber}`);
+          return null;
+        }
+
+        const data = (await response.json()) as { contracts?: Array<PcmiContractApiResponse> };
+        if (data.contracts && data.contracts.length > 0) {
+          const c = data.contracts[0];
+          if (c) {
+            return {
+              status: c.status || null,
+              dealerCost: extractApiDealerCost(c)
+            };
+          }
+        }
+        return null;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (attempt < maxRetries) {
+          console.warn(`PCMI request error for contract ${contractNumber} (${msg}); retrying (attempt ${attempt + 2}/${maxRetries + 1})...`);
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        console.warn(`PCMI request error for contract ${contractNumber} after ${maxRetries + 1} attempts (${msg}); defaulting to pending.`);
         return null;
       }
-
-      const data: any = await response.json();
-      if (data.contracts && data.contracts.length > 0) {
-        const c = data.contracts[0];
-        return {
-          status: c.status || null,
-          dealerCost: extractApiDealerCost(c)
-        };
-      }
-      return null;
-    } catch (err: any) {
-      console.warn(`Error querying PCMI info for contract ${contractNumber}:`, err.message);
-      return null;
     }
+
+    return null;
   }
 
-  public async getContractStatus(contractNumber: string): Promise<PcmiContractStatus | null> {
-    const info = await this.getContractInfo(contractNumber);
+  /**
+   * Queries PCMI for the live status of an individual contract.
+   */
+  public async getContractStatus(contractNumber: string, maxRetries: number = 1): Promise<PcmiContractStatus | null> {
+    const info = await this.getContractInfo(contractNumber, maxRetries);
     return info?.status || null;
   }
 
+  /**
+   * Checks all contracts against PCMI using a controlled concurrency pool.
+   * 1. Only keeps contracts that are verified as 'P' (Pending) in PCMI.
+   * 2. Compares Database Dealer Cost (sum of WrittenAmount) with PCMI API Dealer Cost.
+   *    If a difference is found, adopts the API value and flags it for Excel highlighting.
+   * 3. Calculates discrepancy metrics and flags if discrepancy exceeds 2%.
+   */
   public async filterPendingContracts(
-    contracts: any[],
-    concurrency: number = 12
+    contracts: MongoContract[],
+    concurrency: number = 8
   ): Promise<PcmiVerificationResult> {
-    console.log(`Starting PCMI live verification for ${contracts.length} contracts (concurrency: ${concurrency})...`);
-    
-    const pendingContracts: any[] = [];
-    const removedContracts: any[] = [];
+    console.log(`Starting PCMI live status verification for ${contracts.length} contracts (concurrency: ${concurrency})...`);
+
+    try {
+      await this.getAccessToken();
+      console.log('PCMI authentication verified.');
+    } catch (authErr) {
+      console.warn('Failed to pre-authenticate with PCMI STS, workers will retry:', authErr);
+    }
+
+    const pendingContracts: MongoContract[] = [];
+    const removedContracts: PcmiDiscrepancy[] = [];
     const costDiscrepancyList: CostDiscrepancyItem[] = [];
     let completed = 0;
     const total = contracts.length;
@@ -241,7 +318,7 @@ export class PcmiService {
       while (currentIndex < total) {
         const index = currentIndex++;
         const contract = contracts[index]!;
-        const contractNumber = contract.metadata?.['Contract#'] || contract.metadata?.ContractNumber;
+        const contractNumber = String(contract.metadata?.['Contract#'] || contract.metadata?.ContractNumber || '');
         const dbCost = calculateDbDealerCost(contract);
 
         if (!contractNumber) {
@@ -265,6 +342,7 @@ export class PcmiService {
           pendingContracts.push(contract);
           stillPendingCost += dbCost;
         } else if (info.status.code?.toUpperCase() === 'P' || info.status.description?.toUpperCase() === 'PENDING') {
+          // Still pending in PCMI. Compare Dealer Cost!
           const apiCost = info.dealerCost;
           const hasCostDiff = apiCost !== null && Math.abs(dbCost - apiCost) > 0.01;
 
@@ -276,9 +354,9 @@ export class PcmiService {
 
             costDiscrepancyList.push({
               contractNumber,
-              dealershipName: contract.metadata?.DealerName || '',
-              saleDate: contract.metadata?.SaleDate || contract.metadata?.EntryDate || '',
-              coverageName: contract.metadata?.CoverageName || '',
+              dealershipName: String(contract.metadata?.DealerName || ''),
+              saleDate: String(contract.metadata?.SaleDate || contract.metadata?.EntryDate || ''),
+              coverageName: String(contract.metadata?.CoverageName || ''),
               dbCost,
               apiCost: apiCost!,
               costDifference: Number((apiCost! - dbCost).toFixed(2))
@@ -301,7 +379,7 @@ export class PcmiService {
             contractNumber,
             pcmiStatus: info.status,
             dbCost,
-            apiCost: info.dealerCost
+            apiCost: info.dealerCost ?? undefined
           });
           removedCost += dbCost;
 
@@ -316,7 +394,7 @@ export class PcmiService {
         }
 
         completed++;
-        if (completed % 250 === 0 || completed === total) {
+        if (completed % 10 === 0 || completed === total) {
           console.log(`PCMI Verification Progress: ${completed}/${total} checked (${removedContracts.length} status mismatches, ${costDiscrepancyList.length} cost differences)`);
         }
       }

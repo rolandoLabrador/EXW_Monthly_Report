@@ -1,30 +1,9 @@
-import type { BiWeeklyReportData, DealershipBreakdown, ContractProductType, RawContractType } from '../models/report.types.js';
+import type { BiWeeklyReportData, DealershipBreakdown, ContractProductType, RawContractType, MongoContract } from '../models/report.types.js';
 import { calculateDbDealerCost } from '../services/pcmi.services.js';
 
-export interface MongoContract {
-  _id?: { toString(): string };
-  metadata?: {
-    DealerName?: unknown;
-    CoverageName?: unknown;
-    NetCost?: unknown;
-    SubmittedAmount?: unknown;
-    "Contract#"?: unknown;
-    ContractNumber?: unknown;
-    SaleDate?: unknown;
-    EntryDate?: unknown;
-    [key: string]: unknown;
-  };
-  WrittenAmount?: unknown;
-  effectiveCost?: number;
-  hasCostDiscrepancy?: boolean;
-  dbDealerCost?: number;
-  apiDealerCost?: number;
-  [key: string]: unknown;
-}
-
-function formatUtcDate(val: any): string {
+function formatUtcDate(val: unknown): string {
   if (!val) return '';
-  const d = new Date(val);
+  const d = new Date(val as string | number | Date);
   if (isNaN(d.getTime())) return '';
   const mm = d.getUTCMonth() + 1;
   const dd = d.getUTCDate();
